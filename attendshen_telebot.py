@@ -7,6 +7,7 @@ from flask import Flask, redirect, url_for, request, render_template
 import requests
 from flask_sqlalchemy import SQLAlchemy
 
+# Copyright 2021 Stephen Pang Qing Yang
 
 app = Flask(__name__)
 
@@ -17,7 +18,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 299}
 
 db = SQLAlchemy(app)
 
-bot_token = "FILL" # must remove before pushing to github
+bot_token = "1768510607:AAHNQq3NdVgRsMA42rnOYJx4F4sKTwiZ3lI" # must remove before pushing to github
 
 bot = telebot.TeleBot(token=bot_token)
 
@@ -74,6 +75,8 @@ temp_enroll_dict = {}
 temp_create_event_dict = {}
 # Dictionary to store temp event modification objects
 temp_modify_event_dict = {}
+# Dictionary to store temp student objects
+temp_student_dict = {}
 
 # Class to store student information while enrolling
 class Temp_Enroll:
@@ -146,7 +149,46 @@ class Temp_EventModify:
     def del_temp_modify_event(self,chat_id):
         del temp_modify_event_dict[chat_id]
         end_current_command(chat_id)
+
+# Class to store information when using a student's info in a section (delete,late attendance)
+class Temp_Student:
+    def __init__(self):
+        self.section = None
+        self.chat_id = None
+        self.event_name = None
+        self.status = None
+        self.reason = None
     
+    def setSection(self,section):
+        self.section = section
+    def setChatId(self,chat_id):
+        self.chat_id = chat_id
+    def setEventName(self,event_name):
+        self.event_name = event_name
+    def setStatus(self,status):
+        self.status = status
+    def setReason(self,reason):
+        self.reason = reason
+    def getSection(self):
+        return self.section
+    def getChatId(self):
+        return self.chat_id
+    def getEventName(self):
+        return self.event_name
+    def getStatus(self):
+        return self.status
+    def getReason(self):
+        return self.reason
+    
+    def add_temp_student(self,chat_id):
+        temp_student_dict[chat_id] = self
+        add_current_command(chat_id,"deleteStu")
+    def del_temp_student(self,chat_id):
+        del temp_student_dict[chat_id]
+        end_current_command(chat_id)
+
+        
+
 def getTempEnroll(chat_id):
     return temp_enroll_dict[chat_id]
 
@@ -155,6 +197,9 @@ def getTempCreateEvent(chat_id):
 
 def getTempModifyEvent(chat_id):
     return temp_modify_event_dict[chat_id]
+
+def getTempStudent(chat_id):
+    return temp_student_dict[chat_id]
 
 def idExists(chat_id):
     # FUNCTION TO CHECK IF USER"S CHAT ID IS IN DATABASE
@@ -666,7 +711,6 @@ def pickEvent2(query):
 
 @bot.callback_query_handler(lambda query: query.data.split(":")[0] == "confirmDelete")
 def confirmDelete(query):
-    # EDIT CODE BELOW
     user_id = query.from_user.id
     message_id = query.message.id
     temp_modify = getTempModifyEvent(user_id)
@@ -676,7 +720,7 @@ def confirmDelete(query):
         event_id = query.data.split(":")[1]
         event_name = Events.query.filter_by(event_id=event_id).first().event_name
         temp_modify.setEventName(event_name)
-        bot.edit_message_text('You have chosen section '+ temp_modify.getSection() +'.\n\nYou have chosen to delete the following event: '+ temp_modify.getEventName() +' \n\nConfirm? Be reminded that your students will no longer be able to check their attendance for this event.',user_id,message_id)
+        bot.edit_message_text('You have chosen section '+ temp_modify.getSection() +'.\n\nYou have chosen to delete the following event: '+ temp_modify.getEventName() +' \n\nConfirm? Be reminded that this will delete all attendance records for this event.',user_id,message_id)
         keyboard = [[types.InlineKeyboardButton("Yes",callback_data='deleteEvent:yes'),types.InlineKeyboardButton("No",callback_data='deleteEvent:no')]]
         markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
@@ -718,8 +762,76 @@ def deleteEvent(query):
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
         temp_modify.del_temp_modify_event(user_id)  
 
+# Admin command to delete a user from the section they have admin in. #####################################################################
+@bot.message_handler(commands=['deleteStudent'])
+def pickSection4(message):
+    try:
+        ongoing_action = doing_current_command(message.chat.id)
+        if not ongoing_action:
+            return
+        admin_check = isAdmin(message.chat.id)
+        if not admin_check:
+            return
+        section_list = retrieveSections(message.chat.id)
+        markup = getSectionsMarkup(4,section_list,3)
+        new_temp_student = Temp_Student()
+        new_temp_student.add_temp_student(message.chat.id)
+        bot.send_message(message.chat.id,'Please pick the section that you want to delete an event for.',reply_markup=markup)
+    except Exception as e:
+        bot.send_message(message.chat.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        new_temp_student.del_temp_student(message.chat.id)
 
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "pickSection4")
+def pickStudent(query):
+    try:
+        section = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        temp_student = getTempStudent(user_id)
+        temp_student.setSection(section)
+        
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+        # Generate existing incomplete events of the section
+        students = User_Sections.query.filter_by(section=section,role='Student')
+        row_limit = 4 # MODIFY IF REQUIRED
+        keyboard = []
+        row = []
+        for student in students:
+            name = Users.query.filter_by(chat_id=student.chat_id).first().name
+            row.append(types.InlineKeyboardButton(name,callback_data='pickStudent:'+ str(student.chat_id)))
+            if len(row) >= row_limit:
+                keyboard.append(row)
+                row = []
+        if len(row) > 0:
+            keyboard.append(row)
+        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick a student that you want to remove from your section. This will erase all attendance records of the student from this section.',user_id,message_id)
+        markup = types.InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_student.del_temp_student(user_id)
 
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "pickStudent")
+def confirmDeleteStu(query):
+    user_id = query.from_user.id
+    message_id = query.message.id
+    temp_student = getTempStudent(user_id)
+    new_markup = types.InlineKeyboardMarkup([])
+    bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+    try:
+        chat_id = query.data.split(":")[1]
+        temp_student.setChatId(chat_id)
+        name = Users.query.filter_by(chat_id=chat_id).first().name
+        bot.edit_message_text('You have chosen section '+ temp_student.getSection() +'.\n\nYou have chosen to remove the following student: '+ name +' \n\nConfirm? Be reminded that this will delete all attendance records for that particular user in this section.',user_id,message_id)
+        keyboard = [[types.InlineKeyboardButton("Yes",callback_data='deleteStudent:yes'),types.InlineKeyboardButton("No",callback_data='deleteStudent:no')]]
+        markup = types.InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_student.del_temp_student(user_id)
+
+# FINISH delete student callback
 while True:
     try:
         bot.polling()
