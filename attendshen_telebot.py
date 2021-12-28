@@ -77,6 +77,8 @@ temp_create_event_dict = {}
 temp_modify_event_dict = {}
 # Dictionary to store temp student objects
 temp_student_dict = {}
+# Dictionary to store view attendance objects
+view_attendance_dict = {}
 
 # Class to store student information while enrolling
 class Temp_Enroll:
@@ -122,7 +124,7 @@ class Temp_CreateEvent:
         del temp_create_event_dict[chat_id]
         end_current_command(chat_id)
 
-# Class to store information when modifying an event   
+# Class to store information when modifying an event
 class Temp_EventModify:
     def __init__(self):
         self.section = None
@@ -143,7 +145,7 @@ class Temp_EventModify:
         return self.event_name
         
     def add_temp_modify_event(self,chat_id,command):
-        # command is either 'complete' or 'delete
+        # command is either 'complete' or 'delete'
         temp_modify_event_dict[chat_id] = self
         add_current_command(chat_id,command)
     def del_temp_modify_event(self,chat_id):
@@ -187,6 +189,26 @@ class Temp_Student:
         del temp_student_dict[chat_id]
         end_current_command(chat_id)
 
+class View_Attendance:
+    def __init__(self):
+        self.section = None
+        self.event_id = None
+    
+    def setSection(self,section):
+        self.section = section
+    def setEventId(self,event_id):
+        self.event_id = event_id
+    def getSection(self):
+        return self.section
+    def getEventId(self):
+        return self.event_id
+    
+    def add_view_attendance(self,chat_id):
+        view_attendance_dict[chat_id] = self
+        add_current_command(chat_id,"view_attendance")
+    def del_view_attendance(self,chat_id):
+        del view_attendance_dict[chat_id]
+        end_current_command(chat_id)
         
 
 def getTempEnroll(chat_id):
@@ -200,6 +222,9 @@ def getTempModifyEvent(chat_id):
 
 def getTempStudent(chat_id):
     return temp_student_dict[chat_id]
+
+def getViewAttendance(chat_id):
+    return view_attendance_dict[chat_id]
 
 def idExists(chat_id):
     # FUNCTION TO CHECK IF USER"S CHAT ID IS IN DATABASE
@@ -831,7 +856,125 @@ def confirmDeleteStu(query):
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
         temp_student.del_temp_student(user_id)
 
-# FINISH delete student callback
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "deleteStudent")
+def deleteStu(query):
+    try:
+        response = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        temp_student = getTempStudent(user_id)
+        
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+        if response == "no":
+            # Cancel student deletion
+            bot.edit_message_text('Student Deletion has been cancelled.',user_id,message_id)
+            temp_student.del_temp_student(user_id)   
+        else:
+            # Proceed with event deletion
+            to_delete_list = []
+            user_section = User_Sections.query.filter_by(chat_id=temp_student.getChatId(),section=temp_student.getSection()).first()
+            section_events = Events.query.filter_by(section=temp_student.getSection())
+            for event in section_events:
+                event_id = event.event_id
+                attendance = Attendance.query.filter_by(event_id=event_id,chat_id=temp_student.getChatId()).first()
+                if attendance:
+                    to_delete_list.append(attendance)
+                else:
+                    late_attendance = Late_Attendance.query.filter_by(event_id=event_id,chat_id=temp_student.getChatId()).first()
+                    if late_attendance:
+                        to_delete_list.append(late_attendance)
+
+            for a in to_delete_list:
+                db.session.delete(a)
+            db.session.delete(user_section)
+            db.session.commit()
+            name = Users.query.filter_by(chat_id=temp_student.getChatId()).first().name
+            bot.edit_message_text('The student, ' + name + ' has been removed from section ' + temp_student.getSection() + ' and all their attendance records have been deleted successfully.',user_id,message_id)
+            temp_student.del_temp_student(user_id)
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_student.del_temp_student(user_id)
+
+# ADMIN COMMAND TO VIEW ATTENDANCE ###############################################################
+@bot.message_handler(commands=["view_attendance"]) 
+def pickSection5(message):
+    try:
+        ongoing_action = doing_current_command(message.chat.id)
+        if not ongoing_action:
+            return
+        admin_check = isAdmin(message.chat.id)
+        if not admin_check:
+            return
+        section_list = retrieveSections(message.chat.id)
+        markup = getSectionsMarkup(5,section_list,3)
+        new_view_attendance = View_Attendance()
+        new_view_attendance.add_view_attendance(message.chat.id)
+        bot.send_message(message.chat.id,'Please pick the section that you want to view attendance for.',reply_markup=markup)
+    except Exception as e:
+        bot.send_message(message.chat.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        new_view_attendance.del_view_attendance(message.chat.id)
+
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "pickSection5")
+def pickEvent2(query):
+    try:
+        section = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        new_view_attendance = getViewAttendance(user_id)
+        new_view_attendance.setSection(section)
+        
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+        # Generate existing incomplete events of the section
+        events = Events.query.filter_by(section=section)
+        row_limit = 4 # MODIFY IF REQUIRED
+        keyboard = []
+        row = []
+        for event in events:
+            row.append(types.InlineKeyboardButton(event.event_name,callback_data='view_att:'+ str(event.event_id)))
+            if len(row) >= row_limit:
+                keyboard.append(row)
+                row = []
+        if len(row) > 0:
+            keyboard.append(row)
+        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to check attendance for.',user_id,message_id)
+        markup = types.InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        new_view_attendance.del_view_attendance(user_id)
+
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "view_att")
+def displayAttendance(query):
+    try:
+        event_id = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        new_view_attendance = getViewAttendance(user_id)
+        new_view_attendance.setEventId(event_id)
+        event_name = Events.query.filter_by(event_id=event_id).first().name
+        students_in_section = User_Sections.query.filter_by(section=new_view_attendance.getSection(),role='Student')
+        attendance = Attendance.query.filter_by(event_id=event_id)
+        late_attendance = Late_Attendance.query.filter_by(event_id=event_id)
+        
+        display_message = "Here is the attendance for event, '" + event_name + "' of section, " + new_view_attendance.getSection() + ".\n\n✅ THOSE WHO CHECKED IN ✅\n\n"
+        all_student_name_id_tuplist = []
+        on_time_student_id_tuplist = []
+        late_student_id_tuplist = []
+        for student in students_in_section:
+            name = Users.query.filter_by(chat_id=student.chat_id).first().name
+            all_student_name_id_tuplist.append( (name,student.chat_id) )
+            
+        # adding those who have checked in on time
+        for att in attendance:
+            time_string = convertTime(att.mark_time)
+            on_time_student_id_tuplist.append( (att.chat_id,time_string))
+        # FINISH
+            
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        new_view_attendance.del_view_attendance(user_id)
 while True:
     try:
         bot.polling()
