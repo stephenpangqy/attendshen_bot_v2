@@ -959,18 +959,37 @@ def displayAttendance(query):
         late_attendance = Late_Attendance.query.filter_by(event_id=event_id)
         
         display_message = "Here is the attendance for event, '" + event_name + "' of section, " + new_view_attendance.getSection() + ".\n\n✅ THOSE WHO CHECKED IN ✅\n\n"
-        all_student_name_id_tuplist = []
-        on_time_student_id_tuplist = []
-        late_student_id_tuplist = []
+        all_student_name_id_dict = {}
+        on_time_student_id_dict = {}
+        late_student_id_dict = {}
         for student in students_in_section:
             name = Users.query.filter_by(chat_id=student.chat_id).first().name
-            all_student_name_id_tuplist.append( (name,student.chat_id) )
+            all_student_name_id_dict[student.chat_id] = name
             
         # adding those who have checked in on time
         for att in attendance:
             time_string = convertTime(att.mark_time)
-            on_time_student_id_tuplist.append( (att.chat_id,time_string))
-        # FINISH
+            on_time_student_id_dict[att.chat_id] = time_string
+        # adding those who have checked in late
+        for late_att in late_attendance:
+            late_student_id_dict[late_att.chat_id] = (late_att.status,late_att.reason)
+        
+        # Displaying those who have checked in on time
+        for student_id in on_time_student_id_dict:
+            display_message += "✔️" + all_student_name_id_dict[student_id] + " checked in at " + on_time_student_id_dict[student_id] + "\n"
+        
+        display_message += "\n🅾️ THOSE WHO WERE ABSENT OR HAS A VALID REASON 🅾️\n\n"
+        
+        # Display those who have checked in late / VR / Absent
+        for student_id in late_student_id_dict:
+            if late_student_id_dict[student_id][0] == "VR":
+                display_message += "⭕" + all_student_name_id_dict[student_id] + " has a valid reason: " + late_student_id_dict[student_id][1] + ".\n"
+            else:
+                display_message += "🔴" + all_student_name_id_dict[student_id] + " has been marked as Absent.\n"
+        
+        display_message += "\n✖️ THOSE WHO HAVE YET TO CHECK IN ✖️\n\n"
+        for student_id in all_student_name_id_dict:
+            display_message += "❌ " + all_student_name_id_dict[student_id] + "\n"
             
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
