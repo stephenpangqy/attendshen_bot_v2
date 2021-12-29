@@ -193,15 +193,20 @@ class View_Attendance:
     def __init__(self):
         self.section = None
         self.event_id = None
+        self.unchecked_list = []
     
     def setSection(self,section):
         self.section = section
     def setEventId(self,event_id):
         self.event_id = event_id
+    def setUncheckedList(self,unchecked_list):
+        self.unchecked_list = unchecked_list
     def getSection(self):
         return self.section
     def getEventId(self):
         return self.event_id
+    def getUncheckedList(self):
+        return self.unchecked_list
     
     def add_view_attendance(self,chat_id):
         view_attendance_dict[chat_id] = self
@@ -849,8 +854,7 @@ def confirmDeleteStu(query):
         temp_student.setChatId(chat_id)
         name = Users.query.filter_by(chat_id=chat_id).first().name
         bot.edit_message_text('You have chosen section '+ temp_student.getSection() +'.\n\nYou have chosen to remove the following student: '+ name +' \n\nConfirm? Be reminded that this will delete all attendance records for that particular user in this section.',user_id,message_id)
-        keyboard = [[types.InlineKeyboardButton("Yes",callback_data='deleteStudent:yes'),types.InlineKeyboardButton("No",callback_data='deleteStudent:no')]]
-        markup = types.InlineKeyboardMarkup(keyboard)
+        vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
@@ -897,7 +901,7 @@ def deleteStu(query):
         temp_student.del_temp_student(user_id)
 
 # ADMIN COMMAND TO VIEW ATTENDANCE ###############################################################
-@bot.message_handler(commands=["view_attendance"]) 
+@bot.message_handler(commands=["viewAttendance"]) 
 def pickSection5(message):
     try:
         ongoing_action = doing_current_command(message.chat.id)
@@ -953,7 +957,7 @@ def displayAttendance(query):
         message_id = query.message.id
         new_view_attendance = getViewAttendance(user_id)
         new_view_attendance.setEventId(event_id)
-        event_name = Events.query.filter_by(event_id=event_id).first().name
+        event_name = Events.query.filter_by(event_id=event_id).first().event_name
         students_in_section = User_Sections.query.filter_by(section=new_view_attendance.getSection(),role='Student')
         attendance = Attendance.query.filter_by(event_id=event_id)
         late_attendance = Late_Attendance.query.filter_by(event_id=event_id)
@@ -988,8 +992,45 @@ def displayAttendance(query):
                 display_message += "🔴" + all_student_name_id_dict[student_id] + " has been marked as Absent.\n"
         
         display_message += "\n✖️ THOSE WHO HAVE YET TO CHECK IN ✖️\n\n"
+        unchecked_student_ids = []
         for student_id in all_student_name_id_dict:
-            display_message += "❌ " + all_student_name_id_dict[student_id] + "\n"
+            if student_id not in on_time_student_id_dict and student_id not in late_student_id_dict:
+                unchecked_student_ids.append(student_id)
+                display_message += "❌ " + all_student_name_id_dict[student_id] + "\n"
+        
+        new_view_attendance.setUncheckedList(unchecked_student_ids)
+        if len(unchecked_student_ids) > 0:
+            bot.send_message(user_id,"Once your event or lesson is over, use /markLate to edit the attendance of those who have yet to check in.")
+            keyboard = [[types.InlineKeyboardButton("Yes",callback_data='sendReminder:yes'),types.InlineKeyboardButton("sendReminder:No",callback_data='deleteStudent:no')]]
+            markup = types.InlineKeyboardMarkup(keyboard)
+            msg = bot.send_message(user_id,"Would you like me to send a reminder to these students for their reasoning?",reply_markup=markup)
+            
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        new_view_attendance.del_view_attendance(user_id)
+
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "sendReminder")
+def displayAttendance(query):
+    try:
+        response = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        new_view_attendance = getViewAttendance(user_id)
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+        if response == "no":
+            bot.edit_message_text('Okay, we will not send the reminder. If you change your mind, just use /viewAttendance again.',user_id,message_id)
+            new_view_attendance.del_view_attendance(user_id)
+        else:
+            url = 'https://api.telegram.org/bot' + bot_token + '/sendMessage'
+            for student_id in new_view_attendance.getUncheckedList():
+                event_id = new_view_attendance.getEventId()
+                section = new_view_attendance.getSection()
+                event_name = Events.query.filter_by(event_id=event_id)
+                data = {'chat_id': student_id, 'text': 'Hi there, you are receiving this message because you have not checked in for ' + event_name + ' in ' + section + '. Please contact your TA / instructor and let them know of your reason. Failure to do so will result in your attendance being marked as Absent. Thank you!\n\n(P.S. Please do not reply to this bot)'}
+                requests.post(url,data ).json()
+            bot.edit_message_text('Reminders have been sent out successfully, your students should be contacting you soon.',user_id,message_id)
+            new_view_attendance.del_view_attendance(user_id)
             
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
