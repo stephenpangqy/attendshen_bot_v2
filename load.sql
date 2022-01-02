@@ -36,7 +36,7 @@ create table attendance (
 create table late_attendance (
     event_id int not null,
     chat_id int not null,
-    status varchar(100) not null, # Valid Reason OR Absent
+    status varchar(100) not null, # VR OR Absent
     reason varchar(100),
 
     constraint primary key (event_id, chat_id)
@@ -48,20 +48,13 @@ create table sections (
     
 );
 
-INSERT into sections VALUES ('wad2-g1',0);
+
 INSERT into sections VALUES ('wad2-g2',0);
-INSERT into sections VALUES ('wad2-g3',0);
-INSERT into sections VALUES ('wad2-g4',0);
-INSERT into sections VALUES ('wad2-g5',0);
-INSERT into sections VALUES ('wad2-g6',0);
-INSERT into sections VALUES ('wad2-g7',0);
-INSERT into sections VALUES ('wad2-g8',0);
-INSERT into sections VALUES ('wad2-g9',0);
-INSERT into sections VALUES ('spm-g1',0);
-INSERT into sections VALUES ('spm-g2',0);
-INSERT into sections VALUES ('spm-g3',0);
-INSERT into sections VALUES ('spm-g4',0);
-INSERT into sections VALUES ('spm-g5',0);
+INSERT into sections VALUES ('test1',0);
+INSERT into sections VALUES ('test2',0);
+INSERT into sections VALUES ('test3',0);
+INSERT into sections VALUES ('test4',0);
+INSERT into sections VALUES ('test5',0);
 
 INSERT INTO users VALUES (1,'Sarah');
 INSERT INTO users VALUES (2,'Geraldine');
@@ -79,16 +72,21 @@ INSERT INTO user_sections VALUES (4,'wad2-g2','Student');
 INSERT INTO user_sections VALUES (5,'wad2-g2','Student');
 INSERT INTO user_sections VALUES (6,'wad2-g2','Student');
 INSERT INTO user_sections VALUES (148790980,'wad2-g2','Admin');
+INSERT INTO user_sections VALUES (148790980,'test1','Admin');
+INSERT INTO user_sections VALUES (148790980,'test2','Admin');
+INSERT INTO user_sections VALUES (148790980,'test3','Admin');
+INSERT INTO user_sections VALUES (148790980,'test4','Admin');
+INSERT INTO user_sections VALUES (148790980,'test5','Admin');
 
 INSERT INTO events(event_name,section,code_word,completed) VALUES ('Test 1', 'wad2-g2','test1','0');
 INSERT INTO events(event_name,section,code_word,completed) VALUES ('Test 2', 'wad2-g2','test2','0');
 INSERT INTO events(event_name,section,code_word,completed) VALUES ('Test 1.2', 'wad2-g1','test1','0');
 
-INSERT INTO attendance VALUES (1,1,0);
-INSERT INTO attendance VALUES (1,2,0);
-INSERT INTO attendance VALUES (1,3,0);
-INSERT INTO attendance VALUES (2,1,0);
+INSERT INTO attendance VALUES (1,1,'2022-01-02 17:31:16');
+INSERT INTO attendance VALUES (1,2,'2022-01-02 17:31:16');
+INSERT INTO attendance VALUES (1,3,'2022-01-02 17:31:16');
+INSERT INTO attendance VALUES (2,1,'2022-01-02 17:31:16');
 
 INSERT INTO late_attendance VALUES(1,5,'VR','Sick');
 INSERT INTO late_attendance VALUES(1,6,'VR','Sick');
-INSERT INTO late_attendance VALUES(2,2,'VR','Sick');
+INSERT INTO late_attendance VALUES(2,2,'Absent',null);
