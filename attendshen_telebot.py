@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 299}
 
 db = SQLAlchemy(app)
 
-bot_token = "FILL ME" # must remove before pushing to github
+bot_token = "USE YOUR OWN" # must remove before pushing to github
 
 bot = telebot.TeleBot(token=bot_token)
 
@@ -79,6 +79,8 @@ temp_modify_event_dict = {}
 temp_student_dict = {}
 # Dictionary to store view attendance objects
 view_attendance_dict = {}
+# Dictionary to store temp mark late objects
+temp_mark_late_dict = {}
 
 # Class to store student information while enrolling
 class Temp_Enroll:
@@ -230,6 +232,21 @@ class Temp_Mark_Late:
         self.chat_id = chat_id
     def setReason(self,reason):
         self.reason = reason
+    def getSection(self):
+        return self.section
+    def getEventId(self):
+        return self.event_id
+    def getChatId(self):
+        return self.chat_id
+    def getReason(self):
+        return self.reason
+    
+    def add_mark_late(self,chat_id):
+        temp_mark_late_dict[chat_id] = self
+        add_current_command(chat_id,'mark_late')
+    def del_mark_late(self,chat_id):
+        del temp_mark_late_dict[chat_id]
+        end_current_command(chat_id)
 
 def getTempEnroll(chat_id):
     return temp_enroll_dict[chat_id]
@@ -245,6 +262,9 @@ def getTempStudent(chat_id):
 
 def getViewAttendance(chat_id):
     return view_attendance_dict[chat_id]
+
+def getTempMarkLate(chat_id):
+    return temp_mark_late_dict[chat_id]
 
 def idExists(chat_id):
     # FUNCTION TO CHECK IF USER"S CHAT ID IS IN DATABASE
@@ -991,7 +1011,7 @@ def pickEvent2(query):
             bot.edit_message_text("You have no events. Use /create to create a new one for your section.",user_id,message_id)
             new_view_attendance.del_view_attendance(user_id)
             return
-        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to check attendance for.')
+        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to check attendance for.',user_id,message_id)
         markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
     except Exception as e:
@@ -1091,9 +1111,112 @@ def sendReminder(query):
 # ADMIN COMMAND TO MARK ATTENDANCE OF ABSENT OR LATE STUDENTS ##############################
 @bot.message_handler(commands=['mark_late'])
 def pickSection6(message):
-    pass
+    try:
+        ongoing_action = doing_current_command(message.chat.id)
+        if not ongoing_action:
+            return
+        admin_check = isAdmin(message.chat.id)
+        if not admin_check:
+            return
+        section_list = retrieveSections(message.chat.id)
+        markup = getSectionsMarkup(6,section_list,3)
+        temp_mark_late = Temp_Mark_Late()
+        temp_mark_late.add_mark_late(message.chat.id)
+        bot.send_message(message.chat.id,'Please pick the section that you want to mark.',reply_markup=markup)
+    except Exception as e:
+        bot.send_message(message.chat.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(message.chat.id)
 
-
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "pickSection6")
+def pickEventLate(query):
+    try:
+        section = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        temp_mark_late = getTempMarkLate(user_id)
+        temp_mark_late.setSection(section)
+        
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+        events = Events.query.filter_by(section=section)
+        row_limit = 4 # MODIFY IF REQUIRED
+        keyboard = []
+        row = []
+        for event in events:
+            row.append(types.InlineKeyboardButton(event.event_name,callback_data='pickEventLate:'+ str(event.event_id)))
+            if len(row) >= row_limit:
+                keyboard.append(row)
+                row = []
+        if len(row) > 0:
+            keyboard.append(row)
+        # If there are no events
+        if len(keyboard) == 0:
+            bot.edit_message_text("You have no events. Use /create to create a new one for your section.",user_id,message_id)
+            temp_mark_late.del_mark_late(user_id)
+            return
+        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to mark late attendance for.',user_id,message_id)
+        markup = types.InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(user_id)
+        
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "pickEventLate")
+def pickStudentsLate(query):
+    event_id = query.data.split(":")[1]
+    user_id = query.from_user.id
+    message_id = query.message.id
+    temp_mark_late = getTempMarkLate(user_id)
+    temp_mark_late.setEventId(event_id)
+    new_markup = types.InlineKeyboardMarkup([])
+    bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
+    # Retrieve students who havent checked in 
+    all_students = User_Sections.query.filter_by(section=temp_mark_late.getSection(),role="Student")
+    already_checked_in = Attendance.query.filter_by(event_id=event_id)
+    already_late_recorded = Late_Attendance.query.filter_by(event_id=event_id)
+    already_student_ids = []
+    for s1 in already_checked_in:
+        already_student_ids.append(s1.chat_id)
+    for s3 in already_late_recorded:
+        already_student_ids.append(s3.chat_id)
+    all_student_ids = []
+    for s2 in all_students:
+        all_student_ids.append(s2.chat_id)
+    
+    # Displaying all students who havent checked in as INLINE MARKUP BUTTON
+    keyboard = []
+    row = []
+    try:
+        for chat_id in all_student_ids:
+            if chat_id not in already_student_ids:
+                student_user = Users.query.filter_by(chat_id=chat_id).first()
+                callback = 'late_student:' + student_user.name
+                row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
+                if len(row) == 4:
+                    keyboard.append(row)
+                    row = []
+        if row != []:
+            keyboard.append(row)
+        # If no one is late (All-checked in)
+        if keyboard == []:
+            bot.edit_message_text('There are no students who were late for this event.',user_id,message_id)
+            temp_mark_late.del_mark_late(user_id)
+            return
+        # If there are still late people
+        keyboard.append([types.InlineKeyboardButton('Stop Marking',callback_data='late_student:StopMarking')])
+        markup = types.InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
+        bot.edit_message_text('Click on the student whose late attendance you want to mark.\n\nClick on Stop Marking if you are done marking late attendance.',user_id,message_id)
+        
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(user_id)
+        
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == "late_student")
+def choose_status(query):  
+    # FINISH THIS
+    pass 
+    
 while True:
     try:
         bot.polling()
