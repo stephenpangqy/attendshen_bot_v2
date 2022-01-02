@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 299}
 
 db = SQLAlchemy(app)
 
-bot_token = "1768510607:AAHNQq3NdVgRsMA42rnOYJx4F4sKTwiZ3lI" # must remove before pushing to github
+bot_token = "FILL ME" # must remove before pushing to github
 
 bot = telebot.TeleBot(token=bot_token)
 
@@ -184,7 +184,7 @@ class Temp_Student:
     
     def add_temp_student(self,chat_id):
         temp_student_dict[chat_id] = self
-        add_current_command(chat_id,"deleteStu")
+        add_current_command(chat_id,"delete_student")
     def del_temp_student(self,chat_id):
         del temp_student_dict[chat_id]
         end_current_command(chat_id)
@@ -215,6 +215,21 @@ class View_Attendance:
         del view_attendance_dict[chat_id]
         end_current_command(chat_id)
         
+class Temp_Mark_Late:
+    def __init__(self):
+        self.section = None
+        self.event_id = None
+        self.chat_id = None
+        self.reason = None
+    
+    def setSection(self,section):
+        self.section = section
+    def setEventId(self,event_id):
+        self.event_id = event_id
+    def setChatId(self,chat_id):
+        self.chat_id = chat_id
+    def setReason(self,reason):
+        self.reason = reason
 
 def getTempEnroll(chat_id):
     return temp_enroll_dict[chat_id]
@@ -317,6 +332,7 @@ def convertTime(datetime):
         else:
             string += time_list[0][1] + ":" + time_list[1] + " AM"
             
+    return string
 
 @bot.message_handler(commands=['start'])
 def welcome(message):
@@ -358,6 +374,21 @@ def welcome(message):
         if event.completed == "1":
             bot.send_message(user_chat_id, "The instructor/admin has closed this event, you can no longer mark your attendance. Please contact your instructor / TAs if you are late.")
             return
+        
+        # If user already checked in to that event
+        already_attended = Attendance.query.filter_by(chat_id=user_chat_id,event_id=event.event_id).first()
+        if already_attended:
+            bot.send_message(user_chat_id, "You have already marked your attendance for this event.")
+            return
+        
+        # Creates attendance check in
+        try:
+            new_attendance = Attendance(event_id=event.event_id,chat_id=user_chat_id,mark_time=datetime.datetime.now())
+            db.session.add(new_attendance)
+            db.session.commit()
+            bot.send_message(user_chat_id,"✅ You have successfully marked your attendance for section " + event.section + "'s " + event.event_name)
+        except Exception as e:
+            bot.reply_to(message,"An error occurred while processing your check-in " + str(e) + ". Please contact your instructor or notify the developer.")
         
 def register(message):
     user_chat_id = message.chat.id
@@ -628,6 +659,7 @@ def pickEvent(query):
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
         # Generate existing incomplete events of the section
         incomplete_events = Events.query.filter_by(section=section,completed=0)
+
         row_limit = 4 # MODIFY IF REQUIRED
         keyboard = []
         row = []
@@ -638,6 +670,12 @@ def pickEvent(query):
                 row = []
         if len(row) > 0:
             keyboard.append(row)
+        
+        # If there are no events
+        if len(keyboard) == 0:
+            bot.edit_message_text("You have no events. Use /create to create a new one for your section.",user_id,message_id)
+            temp_modify.del_temp_modify_event(user_id)
+            return
         bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to mark as complete. Students will no longer be able to check their attendance for this event.',user_id,message_id)
         markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
@@ -732,6 +770,11 @@ def pickEvent2(query):
                 row = []
         if len(row) > 0:
             keyboard.append(row)
+        # If there are no events
+        if len(keyboard) == 0:
+            bot.edit_message_text("You have no events. Use /create to create a new one for your section.",user_id,message_id)
+            temp_modify.del_temp_modify_event(user_id)
+            return
         bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to delete. This will erase all student attendance records for that particular event.',user_id,message_id)
         markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
@@ -793,7 +836,7 @@ def deleteEvent(query):
         temp_modify.del_temp_modify_event(user_id)  
 
 # Admin command to delete a user from the section they have admin in. #####################################################################
-@bot.message_handler(commands=['deleteStudent'])
+@bot.message_handler(commands=['delete_student'])
 def pickSection4(message):
     try:
         ongoing_action = doing_current_command(message.chat.id)
@@ -854,7 +897,8 @@ def confirmDeleteStu(query):
         temp_student.setChatId(chat_id)
         name = Users.query.filter_by(chat_id=chat_id).first().name
         bot.edit_message_text('You have chosen section '+ temp_student.getSection() +'.\n\nYou have chosen to remove the following student: '+ name +' \n\nConfirm? Be reminded that this will delete all attendance records for that particular user in this section.',user_id,message_id)
-        vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+        keyboard = [[types.InlineKeyboardButton("Yes",callback_data='deleteStudent:yes'),types.InlineKeyboardButton("No",callback_data='deleteStudent:no')]]
+        markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
@@ -901,7 +945,7 @@ def deleteStu(query):
         temp_student.del_temp_student(user_id)
 
 # ADMIN COMMAND TO VIEW ATTENDANCE ###############################################################
-@bot.message_handler(commands=["viewAttendance"]) 
+@bot.message_handler(commands=["view_attendance"]) 
 def pickSection5(message):
     try:
         ongoing_action = doing_current_command(message.chat.id)
@@ -942,7 +986,12 @@ def pickEvent2(query):
                 row = []
         if len(row) > 0:
             keyboard.append(row)
-        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to check attendance for.',user_id,message_id)
+        # If there are no events
+        if len(keyboard) == 0:
+            bot.edit_message_text("You have no events. Use /create to create a new one for your section.",user_id,message_id)
+            new_view_attendance.del_view_attendance(user_id)
+            return
+        bot.edit_message_text('You have chosen section '+ section +'.\n\nPick an event that you want to check attendance for.')
         markup = types.InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
     except Exception as e:
@@ -955,6 +1004,8 @@ def displayAttendance(query):
         event_id = query.data.split(":")[1]
         user_id = query.from_user.id
         message_id = query.message.id
+        new_markup = types.InlineKeyboardMarkup([])
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
         new_view_attendance = getViewAttendance(user_id)
         new_view_attendance.setEventId(event_id)
         event_name = Events.query.filter_by(event_id=event_id).first().event_name
@@ -972,7 +1023,7 @@ def displayAttendance(query):
             
         # adding those who have checked in on time
         for att in attendance:
-            time_string = convertTime(att.mark_time)
+            time_string = convertTime(str(att.mark_time))
             on_time_student_id_dict[att.chat_id] = time_string
         # adding those who have checked in late
         for late_att in late_attendance:
@@ -998,10 +1049,11 @@ def displayAttendance(query):
                 unchecked_student_ids.append(student_id)
                 display_message += "❌ " + all_student_name_id_dict[student_id] + "\n"
         
+        bot.send_message(user_id,display_message) # display the attendance
         new_view_attendance.setUncheckedList(unchecked_student_ids)
         if len(unchecked_student_ids) > 0:
-            bot.send_message(user_id,"Once your event or lesson is over, use /markLate to edit the attendance of those who have yet to check in.")
-            keyboard = [[types.InlineKeyboardButton("Yes",callback_data='sendReminder:yes'),types.InlineKeyboardButton("sendReminder:No",callback_data='deleteStudent:no')]]
+            bot.send_message(user_id,"Once your event or lesson is over, use /mark_late to edit the attendance of those who have yet to check in.")
+            keyboard = [[types.InlineKeyboardButton("Yes",callback_data='sendReminder:yes'),types.InlineKeyboardButton("No",callback_data='sendReminder:no')]]
             markup = types.InlineKeyboardMarkup(keyboard)
             msg = bot.send_message(user_id,"Would you like me to send a reminder to these students for their reasoning?",reply_markup=markup)
             
@@ -1010,7 +1062,7 @@ def displayAttendance(query):
         new_view_attendance.del_view_attendance(user_id)
 
 @bot.callback_query_handler(lambda query: query.data.split(":")[0] == "sendReminder")
-def displayAttendance(query):
+def sendReminder(query):
     try:
         response = query.data.split(":")[1]
         user_id = query.from_user.id
@@ -1019,22 +1071,29 @@ def displayAttendance(query):
         new_markup = types.InlineKeyboardMarkup([])
         bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
         if response == "no":
-            bot.edit_message_text('Okay, we will not send the reminder. If you change your mind, just use /viewAttendance again.',user_id,message_id)
+            bot.edit_message_text('Okay, we will not send the reminder. If you change your mind, just use /view_attendance again.',user_id,message_id)
             new_view_attendance.del_view_attendance(user_id)
         else:
             url = 'https://api.telegram.org/bot' + bot_token + '/sendMessage'
             for student_id in new_view_attendance.getUncheckedList():
                 event_id = new_view_attendance.getEventId()
                 section = new_view_attendance.getSection()
-                event_name = Events.query.filter_by(event_id=event_id)
+                event_name = Events.query.filter_by(event_id=event_id).first().event_name
                 data = {'chat_id': student_id, 'text': 'Hi there, you are receiving this message because you have not checked in for ' + event_name + ' in ' + section + '. Please contact your TA / instructor and let them know of your reason. Failure to do so will result in your attendance being marked as Absent. Thank you!\n\n(P.S. Please do not reply to this bot)'}
-                requests.post(url,data ).json()
+                requests.post(url,data).json()
             bot.edit_message_text('Reminders have been sent out successfully, your students should be contacting you soon.',user_id,message_id)
             new_view_attendance.del_view_attendance(user_id)
             
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
         new_view_attendance.del_view_attendance(user_id)
+
+# ADMIN COMMAND TO MARK ATTENDANCE OF ABSENT OR LATE STUDENTS ##############################
+@bot.message_handler(commands=['mark_late'])
+def pickSection6(message):
+    pass
+
+
 while True:
     try:
         bot.polling()
