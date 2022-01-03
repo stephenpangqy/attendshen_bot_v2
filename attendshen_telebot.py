@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 299}
 
 db = SQLAlchemy(app)
 
-bot_token = "USE YOUR OWN" # must remove before pushing to github
+bot_token = "FILL ME" # must remove before pushing to github
 
 bot = telebot.TeleBot(token=bot_token)
 
@@ -1190,7 +1190,7 @@ def pickStudentsLate(query):
         for chat_id in all_student_ids:
             if chat_id not in already_student_ids:
                 student_user = Users.query.filter_by(chat_id=chat_id).first()
-                callback = 'late_student:' + student_user.name
+                callback = 'late_student:' + student_user.chat_id
                 row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
                 if len(row) == 4:
                     keyboard.append(row)
@@ -1214,8 +1214,49 @@ def pickStudentsLate(query):
         
 @bot.callback_query_handler(lambda query: query.data.split(":")[0] == "late_student")
 def choose_status(query):  
-    # FINISH THIS
-    pass 
+    try:
+        chat_id = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        temp_mark_late = getTempMarkLate(user_id)
+        temp_mark_late.setChatId(chat_id)
+        if chat_id == "StopMarking":
+            new_markup = types.InlineKeyboardMarkup([])
+            bot.edit_message_reply_markup(chat_id,message_id,reply_markup=new_markup)
+            bot.edit_message_text("You have stopped marking attendance for this section's event.",user_id,message_id)
+            temp_mark_late.del_mark_late(user_id)
+        else:
+            markup = types.InlineKeyboardMarkup([[types.InlineKeyboardButton("Valid Reason (VR)",callback_data='statusUpdate:VR'),types.InlineKeyboardButton("Absent",callback_data='statusUpdate:Absent')]])
+            student_name = Users.query.filter_by(chat_id=chat_id).first().name
+            bot.edit_message_reply_markup(chat_id,message_id,reply_markup=markup)
+            bot.edit_message_text('You have selected student, ' + student_name + '.\n\nWhat is his or her status?',user_id,message_id)
+            
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(user_id)
+        
+@bot.callback_query_handler(lambda query: query.data.split(":")[0] == 'statusUpdate')
+def updateStatus(query):
+    try:
+        status = query.data.split(":")[1]
+        user_id = query.from_user.id
+        message_id = query.message.id
+        temp_mark_late = getTempMarkLate(user_id)
+        chat_id = temp_mark_late.getChatId()
+        event_id = temp_mark_late.getEventId()
+        if status == "Absent":
+            new_late_attendance = Late_Attendance(event_id=event_id,chat_id=chat_id,status=status,reason=None)
+            db.session.add(new_late_attendance)
+            db.session.commit()
+            student_name = Users.query.filter_by(chat_id=chat_id).first().name
+            bot.send_message(user_id,'You have successfully marked ' + student_name + ' as Absent.')
+        else:
+            # FINISH
+            pass
+        
+    except Exception as e:
+        bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(user_id)
     
 while True:
     try:
