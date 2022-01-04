@@ -223,6 +223,7 @@ class Temp_Mark_Late:
         self.event_id = None
         self.chat_id = None
         self.reason = None
+        self.orig_message_id = None
     
     def setSection(self,section):
         self.section = section
@@ -232,6 +233,8 @@ class Temp_Mark_Late:
         self.chat_id = chat_id
     def setReason(self,reason):
         self.reason = reason
+    def setOrigMessageId(self,mid):
+        self.orig_message_id = mid
     def getSection(self):
         return self.section
     def getEventId(self):
@@ -240,6 +243,8 @@ class Temp_Mark_Late:
         return self.chat_id
     def getReason(self):
         return self.reason
+    def getOrigMessageId(self):
+        return self.orig_message_id
     
     def add_mark_late(self,chat_id):
         temp_mark_late_dict[chat_id] = self
@@ -1168,6 +1173,7 @@ def pickStudentsLate(query):
     message_id = query.message.id
     temp_mark_late = getTempMarkLate(user_id)
     temp_mark_late.setEventId(event_id)
+    temp_mark_late.setOrigMessageId(message_id)
     new_markup = types.InlineKeyboardMarkup([])
     bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
     # Retrieve students who havent checked in 
@@ -1242,22 +1248,112 @@ def updateStatus(query):
         user_id = query.from_user.id
         message_id = query.message.id
         temp_mark_late = getTempMarkLate(user_id)
+        temp_mark_late.setStatus(status)
         chat_id = temp_mark_late.getChatId()
         event_id = temp_mark_late.getEventId()
+        student_name = Users.query.filter_by(chat_id=chat_id).first().name
         if status == "Absent":
             new_late_attendance = Late_Attendance(event_id=event_id,chat_id=chat_id,status=status,reason=None)
             db.session.add(new_late_attendance)
             db.session.commit()
-            student_name = Users.query.filter_by(chat_id=chat_id).first().name
-            bot.send_message(user_id,'You have successfully marked ' + student_name + ' as Absent.')
+            temp_mark_late.setStatus(None)
+            temp_mark_late.setReason(None)
+            new_keyboard = []
+            row = []
+            all_students = User_Sections.query.filter_by(section=temp_mark_late.getSection(),role="Student")
+            already_checked_in = Attendance.query.filter_by(event_id=event_id)
+            already_late_recorded = Late_Attendance.query.filter_by(event_id=event_id)
+            already_student_ids = []
+            for s1 in already_checked_in:
+                already_student_ids.append(s1.chat_id)
+            for s3 in already_late_recorded:
+                already_student_ids.append(s3.chat_id)
+            all_student_ids = []
+            for s2 in all_students:
+                all_student_ids.append(s2.chat_id)
+            for chat_id in all_student_ids:
+                if chat_id not in already_student_ids:
+                    student_user = Users.query.filter_by(chat_id=chat_id).first()
+                    callback = 'late_student:' + student_user.chat_id
+                    row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
+                    if len(row) == 4:
+                        new_keyboard.append(row)
+                        row = []
+            if row != []:
+                new_keyboard.append(row)
+                
+            display_message = 'You have successfully marked ' + student_name + "as Absent.\n\n"
+            if new_keyboard == []:
+                display_message += "There are no more students left to mark."
+                temp_mark_late.del_mark_late(user_id)
+            else:
+                display_message += "Which student do you want to mark next?"
+
+            msg = bot.edit_message_text(display_message,user_id,message_id)
         else:
-            # FINISH
-            pass
-        
+            msg = bot.edit_message_text('Please enter a valid reason for ' + student_name + "'s absence in the next chat bubble. Keep it less than 100 characters long.",user_id,message_id)
+            bot.register_next_step_handler(msg,addReason)
+
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
         temp_mark_late.del_mark_late(user_id)
-    
+
+def addReason(message):
+    reason = message.text
+    user_id = message.chat.id
+    temp_mark_late = getTempMarkLate(user_id)
+    event_id = temp_mark_late.getEventId()
+    try:
+        if len(reason) > 100:
+            msg = bot.reply_to(message,"Your reason is too long, please keep it to less than 100 characters leh.\n\nEnter your reason again!")
+            bot.register_next_step_handler(msg,addReason)
+            return
+        else:
+            chat_id = temp_mark_late.getChatId()
+            student_name = Users.query.filter_by(chat_id=chat_id)
+            new_late_attendance = Late_Attendance(event_id=event_id,chat_id=chat_id,status=temp_mark_late.getStatus(),reason=reason)
+            db.session.add(new_late_attendance)
+            db.session.commit()
+            bot.delete_message(chat_id=user_id,message_id=temp_mark_late.getOrigMessageId())
+            temp_mark_late.setOrigMessageId(None)
+        temp_mark_late.setStatus(None)
+        temp_mark_late.setReason(None)
+        new_keyboard = []
+        row = []
+        all_students = User_Sections.query.filter_by(section=temp_mark_late.getSection(),role="Student")
+        already_checked_in = Attendance.query.filter_by(event_id=event_id)
+        already_late_recorded = Late_Attendance.query.filter_by(event_id=event_id)
+        already_student_ids = []
+        for s1 in already_checked_in:
+            already_student_ids.append(s1.chat_id)
+        for s3 in already_late_recorded:
+            already_student_ids.append(s3.chat_id)
+        all_student_ids = []
+        for s2 in all_students:
+            all_student_ids.append(s2.chat_id)
+        for chat_id in all_student_ids:
+            if chat_id not in already_student_ids:
+                student_user = Users.query.filter_by(chat_id=chat_id).first()
+                callback = 'late_student:' + student_user.chat_id
+                row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
+                if len(row) == 4:
+                    new_keyboard.append(row)
+                    row = []
+        if row != []:
+            new_keyboard.append(row)
+            
+        display_message = 'You have successfully marked ' + student_name + ' as VR with reason: ' + reason + ".\n\n"
+        if new_keyboard == []:
+            display_message += "There are no more students left to mark."
+            temp_mark_late.del_mark_late(user_id)
+        else:
+            display_message += "Which student do you want to mark next?"
+        
+        bot.send_message(user_id,display_message,reply_markup=types.InlineKeyboardMarkup(new_keyboard))
+            
+    except Exception as e:
+        bot.send_message(user_id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
+        temp_mark_late.del_mark_late(user_id)
 while True:
     try:
         bot.polling()
