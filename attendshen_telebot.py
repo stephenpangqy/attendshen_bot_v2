@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_recycle': 299}
 
 db = SQLAlchemy(app)
 
-bot_token = "FILL ME" # must remove before pushing to github
+bot_token = "1768510607:AAHNQq3NdVgRsMA42rnOYJx4F4sKTwiZ3lI" # must remove before pushing to github
 
 bot = telebot.TeleBot(token=bot_token)
 
@@ -222,6 +222,7 @@ class Temp_Mark_Late:
         self.section = None
         self.event_id = None
         self.chat_id = None
+        self.status = None
         self.reason = None
         self.orig_message_id = None
     
@@ -235,8 +236,12 @@ class Temp_Mark_Late:
         self.reason = reason
     def setOrigMessageId(self,mid):
         self.orig_message_id = mid
+    def setStatus(self,status):
+        self.status = status
     def getSection(self):
         return self.section
+    def getStatus(self):
+        return self.status
     def getEventId(self):
         return self.event_id
     def getChatId(self):
@@ -1176,27 +1181,27 @@ def pickStudentsLate(query):
     temp_mark_late.setOrigMessageId(message_id)
     new_markup = types.InlineKeyboardMarkup([])
     bot.edit_message_reply_markup(user_id,message_id,reply_markup=new_markup)
-    # Retrieve students who havent checked in 
-    all_students = User_Sections.query.filter_by(section=temp_mark_late.getSection(),role="Student")
-    already_checked_in = Attendance.query.filter_by(event_id=event_id)
-    already_late_recorded = Late_Attendance.query.filter_by(event_id=event_id)
-    already_student_ids = []
-    for s1 in already_checked_in:
-        already_student_ids.append(s1.chat_id)
-    for s3 in already_late_recorded:
-        already_student_ids.append(s3.chat_id)
-    all_student_ids = []
-    for s2 in all_students:
-        all_student_ids.append(s2.chat_id)
-    
-    # Displaying all students who havent checked in as INLINE MARKUP BUTTON
-    keyboard = []
-    row = []
     try:
+        # Retrieve students who havent checked in 
+        all_students = User_Sections.query.filter_by(section=temp_mark_late.getSection(),role="Student")
+        already_checked_in = Attendance.query.filter_by(event_id=event_id)
+        already_late_recorded = Late_Attendance.query.filter_by(event_id=event_id)
+        already_student_ids = []
+        for s1 in already_checked_in:
+            already_student_ids.append(s1.chat_id)
+        for s3 in already_late_recorded:
+            already_student_ids.append(s3.chat_id)
+        all_student_ids = []
+        for s2 in all_students:
+            all_student_ids.append(s2.chat_id)
+        
+        # Displaying all students who havent checked in as INLINE MARKUP BUTTON
+        keyboard = []
+        row = []
         for chat_id in all_student_ids:
             if chat_id not in already_student_ids:
                 student_user = Users.query.filter_by(chat_id=chat_id).first()
-                callback = 'late_student:' + student_user.chat_id
+                callback = 'late_student:' + str(student_user.chat_id)
                 row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
                 if len(row) == 4:
                     keyboard.append(row)
@@ -1210,9 +1215,8 @@ def pickStudentsLate(query):
             return
         # If there are still late people
         keyboard.append([types.InlineKeyboardButton('Stop Marking',callback_data='late_student:StopMarking')])
-        markup = types.InlineKeyboardMarkup(keyboard)
-        bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
         bot.edit_message_text('Click on the student whose late attendance you want to mark.\n\nClick on Stop Marking if you are done marking late attendance.',user_id,message_id)
+        bot.edit_message_reply_markup(user_id,message_id,reply_markup=types.InlineKeyboardMarkup(keyboard))
         
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
@@ -1226,16 +1230,16 @@ def choose_status(query):
         message_id = query.message.id
         temp_mark_late = getTempMarkLate(user_id)
         temp_mark_late.setChatId(chat_id)
+        
         if chat_id == "StopMarking":
-            new_markup = types.InlineKeyboardMarkup([])
-            bot.edit_message_reply_markup(chat_id,message_id,reply_markup=new_markup)
+            # new_markup = types.InlineKeyboardMarkup([])
             bot.edit_message_text("You have stopped marking attendance for this section's event.",user_id,message_id)
             temp_mark_late.del_mark_late(user_id)
         else:
             markup = types.InlineKeyboardMarkup([[types.InlineKeyboardButton("Valid Reason (VR)",callback_data='statusUpdate:VR'),types.InlineKeyboardButton("Absent",callback_data='statusUpdate:Absent')]])
             student_name = Users.query.filter_by(chat_id=chat_id).first().name
-            bot.edit_message_reply_markup(chat_id,message_id,reply_markup=markup)
             bot.edit_message_text('You have selected student, ' + student_name + '.\n\nWhat is his or her status?',user_id,message_id)
+            bot.edit_message_reply_markup(user_id,message_id,reply_markup=markup)
             
     except Exception as e:
         bot.send_message(query.from_user.id,"An error occurred: " + str(e) + ". Please contact your instructor or notify the developer.")
@@ -1274,7 +1278,7 @@ def updateStatus(query):
             for chat_id in all_student_ids:
                 if chat_id not in already_student_ids:
                     student_user = Users.query.filter_by(chat_id=chat_id).first()
-                    callback = 'late_student:' + student_user.chat_id
+                    callback = 'late_student:' + str(student_user.chat_id)
                     row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
                     if len(row) == 4:
                         new_keyboard.append(row)
@@ -1287,9 +1291,12 @@ def updateStatus(query):
                 display_message += "There are no more students left to mark."
                 temp_mark_late.del_mark_late(user_id)
             else:
+                new_keyboard.append([types.InlineKeyboardButton('Stop Marking',callback_data='late_student:StopMarking')])
                 display_message += "Which student do you want to mark next?"
 
-            msg = bot.edit_message_text(display_message,user_id,message_id)
+            bot.edit_message_text(display_message,user_id,message_id)
+            if new_keyboard != []:
+                bot.edit_message_reply_markup(user_id,message_id,reply_markup=types.InlineKeyboardMarkup(new_keyboard))
         else:
             msg = bot.edit_message_text('Please enter a valid reason for ' + student_name + "'s absence in the next chat bubble. Keep it less than 100 characters long.",user_id,message_id)
             bot.register_next_step_handler(msg,addReason)
@@ -1310,7 +1317,7 @@ def addReason(message):
             return
         else:
             chat_id = temp_mark_late.getChatId()
-            student_name = Users.query.filter_by(chat_id=chat_id)
+            student_name = Users.query.filter_by(chat_id=chat_id).first().name
             new_late_attendance = Late_Attendance(event_id=event_id,chat_id=chat_id,status=temp_mark_late.getStatus(),reason=reason)
             db.session.add(new_late_attendance)
             db.session.commit()
@@ -1334,7 +1341,7 @@ def addReason(message):
         for chat_id in all_student_ids:
             if chat_id not in already_student_ids:
                 student_user = Users.query.filter_by(chat_id=chat_id).first()
-                callback = 'late_student:' + student_user.chat_id
+                callback = 'late_student:' + str(student_user.chat_id)
                 row.append(types.InlineKeyboardButton(student_user.name,callback_data=callback))
                 if len(row) == 4:
                     new_keyboard.append(row)
@@ -1347,8 +1354,9 @@ def addReason(message):
             display_message += "There are no more students left to mark."
             temp_mark_late.del_mark_late(user_id)
         else:
+            new_keyboard.append([types.InlineKeyboardButton('Stop Marking',callback_data='late_student:StopMarking')])
             display_message += "Which student do you want to mark next?"
-        
+            
         bot.send_message(user_id,display_message,reply_markup=types.InlineKeyboardMarkup(new_keyboard))
             
     except Exception as e:
