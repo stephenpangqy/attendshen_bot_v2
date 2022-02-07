@@ -1286,7 +1286,7 @@ def updateStatus(query):
             if row != []:
                 new_keyboard.append(row)
                 
-            display_message = 'You have successfully marked ' + student_name + "as Absent.\n\n"
+            display_message = 'You have successfully marked ' + student_name + " as Absent.\n\n"
             if new_keyboard == []:
                 display_message += "There are no more students left to mark."
                 temp_mark_late.del_mark_late(user_id)
