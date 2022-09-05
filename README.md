@@ -14,7 +14,7 @@ Flask-SQLAlchemy - An object relational mapper in Pyton to allow connectivity to
 
 We mainly used 4 tools to build our bot, namely Python, MySQL as our database, TelegramBot API and SQLAlchemy. Instead of raw SQL in the Python script, we decided to use Flask-SQLAlchemy, which is a Python SQL toolkit and Object Relational Mapper (ORM). This translates python code to SQL, hence using this we can easily store objects into a relational database.
 # References
-https://github.com/eternnoir/pyTelegramBotAPI/blob/master/examples/step_example.py
+https://github.com/eternnoir/pyTelegramBotAPI/blob/master/examples/step_example.py <br />
 https://pypi.org/project/PyQRCode/
 # Telegram Handle
 [@attendshen_bot](https://t.me/attendshen_bot)
