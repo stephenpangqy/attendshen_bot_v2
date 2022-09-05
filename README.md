@@ -7,12 +7,11 @@ The main target of my application are mostly students in University, due to thei
 
 From the user perspective, they would have to first enroll into a section, which denotes the event or class that they are in. Once they have enrolled into their section, they can start scanning QR codes that their event admin has displayed, in order to mark their attendance.
 # Tools used
-Python Flask - Backend to setup the Telegram Bot server
-Telegram - The frontend of our Bot
-MySQL - Database
-Flask-SQLAlchemy - An object relational mapper in Pyton to allow connectivity to my MySQL database.
+Python Flask - Backend to setup the Telegram Bot server <br />
+Telegram - The frontend of our Bot <br />
+MySQL - Database <br />
+Flask-SQLAlchemy - An object relational mapper in Pyton to allow connectivity to my MySQL database. <br />
 
-We mainly used 4 tools to build our bot, namely Python, MySQL as our database, TelegramBot API and SQLAlchemy. Instead of raw SQL in the Python script, we decided to use Flask-SQLAlchemy, which is a Python SQL toolkit and Object Relational Mapper (ORM). This translates python code to SQL, hence using this we can easily store objects into a relational database.
 # References
 https://github.com/eternnoir/pyTelegramBotAPI/blob/master/examples/step_example.py <br />
 https://pypi.org/project/PyQRCode/
